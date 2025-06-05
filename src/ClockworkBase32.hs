@@ -1,12 +1,16 @@
 module ClockworkBase32
   ( encode,
-    decode
+    encodeString,
+    decode,
+    decodeString
   ) where
 
 import           Data.Bits             (shiftL, shiftR, (.&.), (.|.))
+import           Data.ByteString       (ByteString)
 import qualified Data.ByteString       as BS
 import qualified Data.ByteString.Char8 as BSC
 import           Data.Word             (Word8)
+import           Data.Char             (toUpper)
 
 -- clockwork base32 symbols
 base32Symbols :: String
@@ -18,11 +22,15 @@ base32Symbols = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 -- of Base32 symbols using the Clockwork Base32 alphabet.
 --
 -- For example:
--- encode "foobar" => "CSQPYRK1E8"
-encode :: String -> String
+-- encodeString "foobar" => "CSQPYRK1E8"
+encodeString :: String -> String
+encodeString = encode . BSC.pack
+
+-- | Encode a binary sequence into CLockwork Base32 format.
+encode :: ByteString -> String
 encode input = processChunks inputBytes
   where
-    inputBytes = BS.unpack $ BSC.pack input
+    inputBytes = BS.unpack input
     processChunks [] = ""
     processChunks bytes = encodeChunk (take 5 bytes) ++ processChunks (drop 5 bytes)
 
@@ -51,20 +59,27 @@ encodeChunk chunk = take outputLength $ map (base32Symbols !!) indices
       _ -> 0
 
 -- | Decode a Clockwork Base32 encoded string into the original string.
-decode :: String -> Either String String
+decodeString :: String -> Either String String
+decodeString input = BSC.unpack <$> decode input
+
+-- | Decode a Clockwork Base32 encoded string into the original binary sequence.
+decode :: String -> Either String ByteString
 decode input = case mapM decodeChar input of
   Left err      -> Left err
   Right symbols -> processChunks symbols []
   where
     -- convert a Base32 symbol into a value
     decodeChar :: Char -> Either String Word8
-    decodeChar c = case lookup c decodeMap of
+    decodeChar c = case lookup (toUpper c) decodeMap of
       Just val -> Right val
-      Nothing  -> Left ("Invalid character: " ++ [c])
+      Nothing 
+        | c `elem` "oO" -> decodeChar '0'
+        | c `elem` "iIlL" -> decodeChar '1'
+        | otherwise -> Left ("Invalid character: " ++ [c])
 
     -- process the input symbols in chunks of 8 characters
-    processChunks :: [Word8] -> [Word8] -> Either String String
-    processChunks [] acc = Right (BSC.unpack (BS.pack (reverse acc)))
+    processChunks :: [Word8] -> [Word8] -> Either String ByteString
+    processChunks [] acc = Right (BS.pack (reverse acc))
     processChunks symbols acc = case decodeChunk (take 8 symbols) of
       []    -> processChunks (drop 8 symbols) acc
       chunk -> processChunks (drop 8 symbols) (reverse chunk ++ acc)
