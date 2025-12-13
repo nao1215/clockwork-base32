@@ -1,7 +1,10 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 module Main (main) where
 
 import           ClockworkBase32 (decode, decodeString, encode, encodeString)
+import qualified Data.ByteString as BS
+import           Data.List (isInfixOf)
 import           Test.Hspec
 
 main :: IO ()
@@ -92,6 +95,31 @@ main = hspec $ do
 
     it "returns Left 'Invalid character: ~' when input value is '~'" $ do
       decode "~" `shouldBe` Left "Invalid character: ~"
+
+    it "returns Left 'Invalid character: U' when input value is 'U'" $ do
+      decode "U" `shouldBe` Left "Invalid character: U"
+
+    it "accepts CR0 as equivalent to CR (per spec example)" $ do
+      decode "CR" `shouldBe` decode "CR0"
+      decode "CR0" `shouldBe` Right "f"
+
+    it "correctly handles valid padding in longer encodings" $ do
+      -- CSQG0 is the canonical encoding of "fo\NUL" (3 bytes)
+      -- The '0' symbol's bits combine with padding to form the null byte
+      encodeString "fo\NUL" `shouldBe` "CSQG0"
+      decode "CSQG0" `shouldBe` Right "fo\NUL"
+
+  describe "padding validation" $ do
+    it "rejects non-zero padding bits" $ do
+      -- CRX would have non-zero padding bits (X = 31)
+      decode "CRX" `shouldSatisfy` \case
+        Left msg -> "Invalid padding" `isInfixOf` msg
+        Right _ -> False
+
+  it "correctly handles ByteStrings containing zero bytes" $ do
+    let original = "\x00\x01\x00\x02\x01"
+    let encoded = encode original
+    decode encoded `shouldBe` Right original
 
   describe "decodeString" $ do
     it "returns Right 'foobar' when input value is 'CSQPYRK1E8'" $ do
