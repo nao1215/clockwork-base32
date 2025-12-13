@@ -2,10 +2,9 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Main (main) where
 
-import           ClockworkBase32 (decode, decodeString, encode, encodeString)
-import qualified Data.ByteString as BS
-import           Data.List (isInfixOf)
-import           Test.Hspec
+import ClockworkBase32 (decode, decodeString, encode, encodeString)
+import Data.List (isInfixOf)
+import Test.Hspec
 
 main :: IO ()
 main = hspec $ do
