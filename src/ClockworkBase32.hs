@@ -80,15 +80,25 @@ decode input = case mapM decodeChar input of
     -- process the input symbols in chunks of 8 characters
     processChunks :: [Word8] -> [Word8] -> Either String ByteString
     processChunks [] acc = Right (BS.pack (reverse acc))
-    processChunks symbols acc = case decodeChunk (take 8 symbols) of
-      []    -> processChunks (drop 8 symbols) acc
-      chunk -> processChunks (drop 8 symbols) (reverse chunk ++ acc)
+    processChunks symbols acc =
+      let chunkSymbols = take 8 symbols
+      in case decodeChunk chunkSymbols of
+        Left err    -> Left err
+        Right []    -> processChunks (drop 8 symbols) acc
+        Right chunk -> processChunks (drop 8 symbols) (reverse chunk ++ acc)
 
-    -- decode a chunk of 8 Base32 symbols into 5 bytes
-    decodeChunk :: [Word8] -> [Word8]
-    decodeChunk chunk = [fromIntegral byte | byte <- [v1, v2, v3, v4, v5], byte /= 0]
+    -- decode a chunk of Base32 symbols into bytes
+    -- Per spec: encoders can choose padding length (e.g., "CR" or "CR0" both encode 'f')
+    -- as long as padding bits are zero. We validate this during decoding.
+    decodeChunk :: [Word8] -> Either String [Word8]
+    decodeChunk [] = Right []
+    decodeChunk chunk
+      | paddingBits > 0 && paddingValue /= 0 =
+          Left ("Invalid padding: expected " ++ show paddingBits ++ " zero bits, got non-zero value")
+      | otherwise = Right (take outputBytes bytes)
       where
-        -- 8 symbols -> 40 bits
+        chunkLen = length chunk
+        -- each symbol represents 5 bits
         val :: Integer
         val = foldl (\acc (b, i) -> acc .|. (fromIntegral b `shiftL` (35 - 5 * i))) 0 (zip chunk [0..])
         -- split 40 bits into 5 8-bit values
@@ -97,6 +107,16 @@ decode input = case mapM decodeChar input of
         v3 = (val `shiftR` 16) .&. 0xFF
         v4 = (val `shiftR` 8) .&. 0xFF
         v5 = val .&. 0xFF
+        bytes = [fromIntegral v1, fromIntegral v2, fromIntegral v3, fromIntegral v4, fromIntegral v5]
+        -- Per spec: "If the sum of the block length is indivisible by 8,
+        -- truncate most right bits which length is equal to a remainder of division by 8."
+        outputBytes = (chunkLen * 5) `div` 8
+        -- Validate that truncated bits are all zeros (valid padding per spec)
+        -- Padding bits are right after the last valid output byte within the symbol bits
+        paddingBits = (chunkLen * 5) - (outputBytes * 8)
+        paddingShift = 40 - (chunkLen * 5)  -- shift to position symbol bits at bottom
+        paddingMask = (1 `shiftL` paddingBits) - 1
+        paddingValue = (val `shiftR` paddingShift) .&. paddingMask
 
     -- create a map for decoding Base32 symbols
     decodeMap :: [(Char, Word8)]
